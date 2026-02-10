@@ -8,11 +8,18 @@ class TcpServer:
         self.HEAD_LEN=8
         self.tcpServerSocket=socket.socket()#创建socket对象
         hostname= socket.gethostname()#获取本地主机名
-        sysinfo = socket.gethostbyname_ex(hostname)
-        hostip=sysinfo[2][2]
+        try:
+            sysinfo = socket.gethostbyname_ex(hostname)
+            hostip = sysinfo[2][-1] # 使用最后一个可用IP，或者根据需要调整
+        except Exception:
+            hostip = '0.0.0.0' # 获取失败时监听所有接口
+        
+        print(f"Server starting on IP: {hostip}, Port: {self.port}")
         self.tcpServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)#让端口可以复用
         self.tcpServerSocket.bind((hostip,self.port))#将地址与套接字绑定，且套接字要求是从未被绑定过的
         self.tcpServerSocket.listen(5)#代办事件中排队等待connect的最大数目
+        self.connected_listener = None
+        self.receive_listener = None
 
     def set_receive_listener(self,receive_listener):
         self.receive_listener = receive_listener
@@ -44,7 +51,10 @@ class TcpServer:
                         if not text:
                             break
                         if self.receive_listener:
-                            self.receive_listener(text)
+                            try:
+                                self.receive_listener(text)
+                            except Exception as e:
+                                print(f"Error in receive_listener: {e}")
                     elif data_type == 2:#image data
                         pass
 
@@ -86,8 +96,8 @@ class TcpServer:
     def send_data(self, data):
         try:
             self.clientSocket.send(data)
-        except ConnectionResetError:
-            print("ConnectionResetError!")
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
+            print(f"Send Error: {e}")
             self.restart()
     def send_img(self, bytes_data):
         data = self.wrapper_data(2,bytes_data)
@@ -98,20 +108,20 @@ class TcpServer:
         self.send_data(data)
     
     def wrapper_data(self,data_type,body_data):
-
-        print("data_type:",data_type)
-        print("body_data len:",len(body_data))
+        # Reduced logging for performance and cleanliness
+        # print("data_type:",data_type)
+        # print("body_data len:",len(body_data))
 
 
         type_bytes=data_type.to_bytes(4,'big')
-        print("type_bytes:",type_bytes)
+        # print("type_bytes:",type_bytes)
         body_len = len(body_data)
 
         body_len_bytes = body_len.to_bytes(4,'big')
-        print("body_len_bytes:",body_len_bytes)
+        # print("body_len_bytes:",body_len_bytes)
 
         head_data = type_bytes + body_len_bytes
-        print("head_data:",head_data)
+        # print("head_data:",head_data)
 
         data = head_data+body_data
         return data

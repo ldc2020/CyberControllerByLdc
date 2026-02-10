@@ -3,6 +3,7 @@ import win32con
 import time
 import pyautogui
 import pyperclip
+
 key_map={
     'backspace':0x08,
     'tab':0x09,
@@ -168,26 +169,29 @@ def key_press(key, sleep_time=0.02):
     time.sleep(sleep_time)
     key_up(key)
 
-# time.sleep(3)
-# key_down("alt")
-# key_down("h")
-# key_press("f")
-# key_press("c")
-# key_up("alt")
-# key_up("h")
-# key_press("down_arrow",sleep_time=0)
-# key_press("down_arrow",sleep_time=0)
-# key_press("down_arrow",sleep_time=0)
-# key_press("down_arrow",sleep_time=0)
-# key_press("down_arrow",sleep_time=0)
-# key_press("down_arrow",sleep_time=0)
-# key_press("right_arrow",sleep_time=0)
+def press_hotkey(*keys):
+    """
+    Simulates pressing a combination of keys (e.g., press_hotkey('alt', '.'))
+    """
+    # Press all keys in order
+    for key in keys:
+        key_down(key)
+        time.sleep(0.01)
+    
+    # Release all keys in reverse order
+    for key in reversed(keys):
+        key_up(key)
+        time.sleep(0.01)
 
-# key_press("enter")
-
-# # 输入 a
-# #key_press("a")
-
-# key_press('enter')
-# key_press('a')
+def type_text(text):
+    """
+    Types text by copying to clipboard and pressing Ctrl+V.
+    Supports Chinese and other non-ASCII characters.
+    """
+    try:
+        pyperclip.copy(text)
+        time.sleep(0.1) # Wait for clipboard to update
+        press_hotkey('ctrl', 'v')
+    except Exception as e:
+        print(f"Error typing text: {e}")
 

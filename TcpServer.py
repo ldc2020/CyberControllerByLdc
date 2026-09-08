@@ -1,71 +1,128 @@
+import os
 import socket
 import threading
 import json
+from app_logging import log_debug, log_error, log_info, log_warning
 
 class TcpServer:
     def __init__(self):
-        self.port=2233#设置端口
+        self.port=self._resolve_port()#设置端口
         self.HEAD_LEN=8
-        self.tcpServerSocket=socket.socket()#创建socket对象
-        hostname= socket.gethostname()#获取本地主机名
-        try:
-            sysinfo = socket.gethostbyname_ex(hostname)
-            hostip = sysinfo[2][-1] # 使用最后一个可用IP，或者根据需要调整
-        except Exception:
-            hostip = '0.0.0.0' # 获取失败时监听所有接口
-        
-        print(f"Server starting on IP: {hostip}, Port: {self.port}")
-        self.tcpServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)#让端口可以复用
-        self.tcpServerSocket.bind((hostip,self.port))#将地址与套接字绑定，且套接字要求是从未被绑定过的
-        self.tcpServerSocket.listen(5)#代办事件中排队等待connect的最大数目
+        self.bind_ip = "0.0.0.0"
+        self.tcpServerSocket=None
         self.connected_listener = None
         self.receive_listener = None
+        self.clientSocket = None
+        self.server_threading = None
+        self.running = False
 
     def set_receive_listener(self,receive_listener):
         self.receive_listener = receive_listener
+
+    def _resolve_port(self):
+        """优先读取环境变量，其次使用避开系统保留范围的默认端口。"""
+        raw_port = os.environ.get("LDC_HELPER_PORT", "2333")
+        try:
+            port = int(raw_port)
+            if 1 <= port <= 65535:
+                return port
+        except (TypeError, ValueError):
+            pass
+        log_error(f"Invalid LDC_HELPER_PORT: {raw_port}, fallback to 2333")
+        return 2333
+
+    def _close_client_socket(self):
+        """关闭当前客户端连接，避免断开重连时残留旧 socket。"""
+        if self.clientSocket:
+            try:
+                self.clientSocket.close()
+            except OSError:
+                pass
+            self.clientSocket = None
+
+    def _recv_exact(self, size):
+        """按指定长度读取数据，避免 TCP 分包导致读取不完整。"""
+        chunks = []
+        remaining = size
+        while self.running and remaining > 0:
+            chunk = self.clientSocket.recv(remaining)
+            if not chunk:
+                return b""
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def _create_server_socket(self):
+        """延迟创建并绑定监听 socket，避免构造阶段异常直接杀掉整个进程。"""
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((self.bind_ip, self.port))
+            sock.listen(5)
+        except OSError:
+            sock.close()
+            raise
+        self.tcpServerSocket = sock
+        log_info(f"TCP 服务开始监听，地址 {self.bind_ip}:{self.port}")
+
     def server(self):
-        while True:
-            print("等待连接")
-            self.clientSocket, addr = self.tcpServerSocket.accept()  
-            print ('连接地址：', addr)
+        while self.running:
+            log_debug("TCP 服务正在等待客户端连接")
+            try:
+                self.clientSocket, addr = self.tcpServerSocket.accept()
+            except OSError as e:
+                if self.running:
+                    log_error(f"TcpServer accept failed: {e}")
+                break
+            log_info(f"客户端已连接：{addr}")
             if self.connected_listener:
-                self.connected_listener()
-            while True:
                 try:
-                    head_data=self.clientSocket.recv(self.HEAD_LEN)
+                    self.connected_listener()
+                except Exception as e:
+                    log_error(f"TcpServer connected_listener failed: {e}")
+
+            while self.running:
+                try:
+                    head_data=self._recv_exact(self.HEAD_LEN)
                     if not len(head_data)==8:
-                        print("bad package!head_data len:",head_data)
-                        self.restart()
-                        return
+                        if head_data:
+                            log_warning(f"TcpServer bad package head: {head_data}")
+                        else:
+                            log_info("客户端已主动断开连接")
+                        break
                     body_len = self.get_length_from_head_data(head_data)
-                    body_data = self.clientSocket.recv(body_len)
+                    body_data = self._recv_exact(body_len)
                     if not body_len==len(body_data):
-                        print("bad package!body_len:",body_len)
-                        self.restart()
-                        return
+                        log_warning(f"TcpServer bad package body length: expected={body_len}, actual={len(body_data)}")
+                        break
                     data_type = self.get_type_from_head_data(head_data)
 
                     if data_type == 1:#test/json data
                         text = body_data.decode()
-                        print(text)
+                        log_debug(f"收到文本数据：{text}")
                         if not text:
                             break
                         if self.receive_listener:
                             try:
                                 self.receive_listener(text)
                             except Exception as e:
-                                print(f"Error in receive_listener: {e}")
+                                log_error(f"TcpServer receive_listener failed: {e}")
                     elif data_type == 2:#image data
                         pass
 
-                except ConnectionResetError:
-                    print("ConnectionResetError!")
-                    self.restart()
-                    return
-                
-               
-            self.clientSocket.close() # 关闭连接
-        self.tcpServerSocket.close()
+                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
+                    if self.running:
+                        log_warning(f"TcpServer connection error: {e}")
+                    break
+
+            self._close_client_socket()
+
+        try:
+            if self.tcpServerSocket:
+                self.tcpServerSocket.close()
+        except OSError:
+            pass
+        self.tcpServerSocket = None
 
     def get_length_from_head_data(self,head_data):
         if(not len(head_data)==8):
@@ -87,17 +144,38 @@ class TcpServer:
 
 
     def start(self): 
+        """启动服务线程；如果已在运行则直接复用当前实例。"""
+        if self.server_threading and self.server_threading.is_alive():
+            return True
+        self._create_server_socket()
+        self.running = True
         self.server_threading = threading.Thread(target=self.server, args=())
+        self.server_threading.daemon = True
         self.server_threading.start()
+        return True
 
     def restart(self):
-        self.start()
+        """仅关闭当前连接，让监听线程自动回到等待连接状态。"""
+        self._close_client_socket()
+
+    def stop(self):
+        """停止监听并关闭所有 socket，供托盘退出时安全清理。"""
+        self.running = False
+        self._close_client_socket()
+        try:
+            if self.tcpServerSocket:
+                self.tcpServerSocket.close()
+        except OSError:
+            pass
+        self.tcpServerSocket = None
 
     def send_data(self, data):
+        if not self.clientSocket:
+            return
         try:
             self.clientSocket.send(data)
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
-            print(f"Send Error: {e}")
+            log_warning(f"TcpServer send failed: {e}")
             self.restart()
     def send_img(self, bytes_data):
         data = self.wrapper_data(2,bytes_data)

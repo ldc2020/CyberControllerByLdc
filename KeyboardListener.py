@@ -1,118 +1,106 @@
-import keyboard
-import time
-from screen_shot import ScreenCapture
 import io
-import threading
+import time
+
+import keyboard
+
+from app_logging import log_debug, log_info, log_warning
+
 
 class KeyboardListener:
-	def __init__(self, tcpServer):
-		self.tcpServer = tcpServer
-		self.t = 0
-		self.c = 0
-		self.key_state_map={}
-		self.screen_capture = None # Expects a ScreenCapture instance
-		
-	def set_screen_capture(self, screen_capture):
-		self.screen_capture = screen_capture
+    def __init__(self, tcpServer):
+        self.tcpServer = tcpServer
+        self.t = 0
+        self.c = 0
+        self.key_state_map = {}
+        self.screen_capture = None
+        self.callback = None
+        self.on_record_start = None
+        self.on_record_end = None
+        self.recording = False
 
-	def listen_keyboard(self, callback, on_record_start=None, on_record_end=None):
-		self.callback = callback
-		self.on_record_start = on_record_start
-		self.on_record_end = on_record_end
-		self.recording = False  # Track recording state to avoid repeated events
-		keyboard.hook(self.onKeyEvent)
-		# Removed keyboard.wait() to allow main thread to run Tkinter loop
+    def set_screen_capture(self, screen_capture):
+        self.screen_capture = screen_capture
 
-	def onImgCapture(self,pic):	
-		imgByteArr = io.BytesIO()
-		pic.save(imgByteArr, format='JPEG')
-		bytes_data = imgByteArr.getvalue()
-		self.tcpServer.send_img(bytes_data)
-		if self.screen_capture:
-			self.screen_capture.trigger_toast("截图已发送至手机")
+    def listen_keyboard(self, callback, on_record_start=None, on_record_end=None):
+        self.callback = callback
+        self.on_record_start = on_record_start
+        self.on_record_end = on_record_end
+        self.recording = False
+        keyboard.hook(self.onKeyEvent)
 
-	def isCtrlHolding(self):
-		return ('ctrl' in self.key_state_map and self.key_state_map['ctrl']=='down')\
-			or ('left ctrl' in self.key_state_map and self.key_state_map['left ctrl']=='down')\
-			or ('right ctrl' in self.key_state_map and self.key_state_map['right ctrl']=='down')
+    def onImgCapture(self, pic):
+        img_byte_arr = io.BytesIO()
+        pic.save(img_byte_arr, format="JPEG")
+        bytes_data = img_byte_arr.getvalue()
+        self.tcpServer.send_img(bytes_data)
+        if self.screen_capture:
+            self.screen_capture.trigger_toast("截图已发送至手机")
 
-	def isAltHolding(self):
-		return ('alt' in self.key_state_map and self.key_state_map['alt']=='down')\
-			or ('left alt' in self.key_state_map and self.key_state_map['left alt']=='down')\
-			or ('right alt' in self.key_state_map and self.key_state_map['right alt']=='down')
+    def isCtrlHolding(self):
+        return (
+            ("ctrl" in self.key_state_map and self.key_state_map["ctrl"] == "down")
+            or ("left ctrl" in self.key_state_map and self.key_state_map["left ctrl"] == "down")
+            or ("right ctrl" in self.key_state_map and self.key_state_map["right ctrl"] == "down")
+        )
 
-	def isKeyHolding(self,key):
-		return (key in self.key_state_map and self.key_state_map[key]=='down')
+    def isAltHolding(self):
+        return (
+            ("alt" in self.key_state_map and self.key_state_map["alt"] == "down")
+            or ("left alt" in self.key_state_map and self.key_state_map["left alt"] == "down")
+            or ("right alt" in self.key_state_map and self.key_state_map["right alt"] == "down")
+        )
 
+    def isKeyHolding(self, key):
+        return key in self.key_state_map and self.key_state_map[key] == "down"
 
-	def onKeyEvent(self,key):
-		#update key_state_map
-		self.key_state_map[key.name.lower()]=key.event_type
-		
-		# Debugging: Print key info for Ctrl or Space (Conditional)
-		# if key.name == 'space' or 'ctrl' in key.name.lower():
-		# 	print(f"Debug: Key='{key.name}', Event='{key.event_type}', CtrlHolding={self.isCtrlHolding()}")
+    def onKeyEvent(self, key):
+        key_name = (key.name or "").lower()
+        self.key_state_map[key_name] = key.event_type
 
-		#is screenshoot?
+        if self.isAltHolding() and key.event_type == "down" and key_name == "a":
+            if self.screen_capture:
+                self.screen_capture.trigger_capture(self.onImgCapture)
+            else:
+                log_warning("截图模块尚未初始化，忽略本次 Alt + A 操作")
 
-		if  self.isAltHolding()\
-			and key.event_type=="down"\
-			and key.name.lower()=="a":
-			if self.screen_capture:
-				self.screen_capture.trigger_capture(self.onImgCapture)
-			else:
-				print("Screen capture module not initialized")
+        if key.event_type == "down" and key_name == "c" and self.isCtrlHolding():
+            if self.t == 0:
+                self.t = time.time()
+                self.c += 1
+                log_debug(f"检测到 Ctrl + C 连击第 {self.c} 次，等待下一次输入")
+                return
 
-		# print(self.key_state_map) # Reduced logging
-		#is triple c?
-		if  key.event_type=="down" \
-			and key.name.lower()=="c" \
-			and self.isCtrlHolding():
+            if time.time() - self.t < 0.5:
+                self.t = time.time()
+                self.c += 1
+                log_debug(f"检测到 Ctrl + C 连击第 {self.c} 次，继续等待")
+            else:
+                self.c = 0
+                self.t = 0
+                log_debug("Ctrl + C 连击超时，已重置计数")
 
-			if self.t == 0:
-				self.t=time.time()
-				self.c += 1
-				print("wait for nex c",self.c)
-				return
+            if self.c >= 2:
+                self.c = 0
+                log_info("检测到快捷复制操作，准备同步剪贴板")
+                if self.callback:
+                    self.callback()
 
-			if (time.time()-self.t<0.5):
-				self.t=time.time()
-				self.c += 1
-				print("wait for nex c:",self.c)
+        if key_name == "space":
+            if key.event_type == "down" and self.isCtrlHolding():
+                if not self.recording:
+                    self.recording = True
+                    log_info("检测到 Ctrl + Space，开始录音")
+                    if self.on_record_start:
+                        self.on_record_start()
+            elif key.event_type == "up":
+                if self.recording:
+                    self.recording = False
+                    log_info("检测到 Space 松开，结束录音")
+                    if self.on_record_end:
+                        self.on_record_end()
 
-			else:
-				self.c = 0
-				self.t=0
-				print("wait for nex c",self.c)
-
-			if self.c>=2:
-				self.c=0
-				print("need trans")
-				if self.callback:
-					self.callback()
-		
-		# Ctrl + Space Logic for Recording
-		# Trigger only when 'space' is pressed/released while Ctrl is held
-		if key.name == 'space':
-			if key.event_type == "down" and self.isCtrlHolding():
-				if not self.recording:
-					self.recording = True
-					print("Start Recording (Ctrl + Space)")
-					if self.on_record_start:
-						self.on_record_start()
-			elif key.event_type == "up":
-				# Note: We check if we were recording, because Ctrl might be released before Space
-				# But typically we want to stop when Space is released
-				if self.recording:
-					self.recording = False
-					print("Stop Recording (Ctrl + Space released)")
-					if self.on_record_end:
-						self.on_record_end()
-		
-		# Safety: If Ctrl is released while recording, also stop
-		if ('ctrl' in key.name.lower()) \
-			and key.event_type == "up" and self.recording:
-			self.recording = False
-			print("Stop Recording (Ctrl released)")
-			if self.on_record_end:
-				self.on_record_end()
+        if "ctrl" in key_name and key.event_type == "up" and self.recording:
+            self.recording = False
+            log_info("检测到 Ctrl 松开，结束录音")
+            if self.on_record_end:
+                self.on_record_end()

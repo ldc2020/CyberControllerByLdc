@@ -22,3 +22,10 @@
 [109804:161780:0209/183658.894:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.v41.filemap.sogouime
 [109804:161780:0209/183658.896:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:41
 [109804:161780:0209/183658.896:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:41
+[50924:9168:0809/195556.312:WARNING:kernel_parameter_setter.cc(150)] [KernelParameterSetter] NotifyDoublePinyinSchemeChanged failed, scheme=Sogou status=1
+[50924:9168:0809/195556.312:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.v5.filemap.sogouime
+[50924:9168:0809/195556.312:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:1
+[50924:9168:0809/195556.312:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:5
+[50924:9168:0809/195556.343:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.Dpi144.v5.filemap.sogouime
+[50924:9168:0809/195556.343:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:5
+[50924:9168:0809/195556.343:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:5

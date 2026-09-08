@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 from time import sleep
 import mss
 import mss.tools
+from app_logging import log_debug, log_error, log_info, log_warning
 
 class ScreenCapture:
     def __init__(self):
@@ -14,15 +15,15 @@ class ScreenCapture:
         self.dpi_level = 0
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(2) # 2 = PROCESS_PER_MONITOR_DPI_AWARE
-            print("Debug: SetProcessDpiAwareness(2) success")
+            log_debug("SetProcessDpiAwareness(2) 调用成功")
             self.dpi_level = 2
         except Exception:
             try:
                 ctypes.windll.user32.SetProcessDPIAware()
-                print("Debug: SetProcessDPIAware() success")
+                log_debug("SetProcessDPIAware() 调用成功")
                 self.dpi_level = 1
             except Exception as e:
-                print(f"Debug: DPI Awareness failed: {e}")
+                log_warning(f"DPI 感知初始化失败：{e}")
 
         # 初始化 Tkinter root 但立即隐藏
         self.root = tkinter.Tk()
@@ -39,7 +40,7 @@ class ScreenCapture:
         else:
             self.scale_factor = 1.0
 
-        print(f"Debug: DPI Level: {self.dpi_level}, Scale Factor: {self.scale_factor}")
+        log_debug(f"DPI 初始化完成，级别={self.dpi_level}，缩放因子={self.scale_factor}")
 
         self.sel = False
         self.callback = None
@@ -58,7 +59,7 @@ class ScreenCapture:
             ctypes.windll.user32.ReleaseDC(0, hDC)
             return dpi_x / 96.0
         except Exception as e:
-            print(f"Error getting system scale: {e}")
+            log_warning(f"获取系统缩放比例失败：{e}")
             return 1.0
 
     def run_forever(self):
@@ -68,7 +69,7 @@ class ScreenCapture:
     def trigger_capture(self, callback):
         """Thread-safe method to trigger screenshot from another thread."""
         if self.is_capturing:
-            print("Already capturing")
+            log_debug("截图流程仍在进行中，忽略重复触发")
             return
         self.callback = callback
         self.root.event_generate('<<StartCapture>>', when='tail')
@@ -114,7 +115,7 @@ class ScreenCapture:
                 
                 # 如果未找到，则回退到主监视器（通常是索引 1）
                 if not target_mon:
-                    print("Warning: Mouse not found on any monitor, defaulting to primary.")
+                    log_warning("鼠标未命中任何显示器区域，回退到主显示器")
                     target_mon = sct.monitors[1]
                 
                 tl = target_mon['left']
@@ -122,9 +123,9 @@ class ScreenCapture:
                 width = target_mon['width']
                 height = target_mon['height']
                 
-                print(f"Debug: Mouse at ({mx}, {my})")
-                print(f"Debug: Target Monitor: {target_mon}")
-                print(f"Debug: Physical Geometry: {width}x{height}+{tl}+{tt}")
+                log_debug(f"鼠标位置：({mx}, {my})")
+                log_debug(f"目标显示器：{target_mon}")
+                log_debug(f"物理像素几何信息：{width}x{height}+{tl}+{tt}")
                 
                 # 仅捕获目标监视器 (物理像素)
                 sct_img = sct.grab(target_mon)
@@ -143,7 +144,7 @@ class ScreenCapture:
                 l_width = int(width / scale)
                 l_height = int(height / scale)
                 
-                print(f"Debug: Window Geometry: {l_width}x{l_height}+{l_tl}+{l_tt} (Scale: {scale})")
+                log_debug(f"截图窗口几何信息：{l_width}x{l_height}+{l_tl}+{l_tt}，缩放={scale}")
 
                 # 创建覆盖仅目标监视器的 Toplevel 窗口
                 self.top = tkinter.Toplevel(self.root)
@@ -179,14 +180,14 @@ class ScreenCapture:
                                  SWP_SHOWWINDOW)
                     if not ret:
                          err = ctypes.windll.kernel32.GetLastError()
-                         print(f"SetWindowPos failed with error: {err}")
+                         log_warning(f"SetWindowPos 调用失败，错误码：{err}")
                          # 如果 SetWindowPos 失败，回退到 geometry
                          self.top.geometry(geo_str)
                     else:
-                         print(f"Debug: SetWindowPos success")
+                         log_debug("SetWindowPos 调用成功")
                          
                 except Exception as e:
-                    print(f"SetWindowPos exception: {e}")
+                    log_warning(f"SetWindowPos 调用异常：{e}")
                     self.top.geometry(geo_str)
 
                 self.top.focus_force() # 确保窗口获得焦点以进行关键事件
@@ -221,7 +222,7 @@ class ScreenCapture:
                 self.top.bind('<Escape>', lambda e: self.destroy_overlay())
 
         except Exception as e:
-            print(f"Error in screenshot start: {e}")
+            log_error(f"启动截图流程失败：{e}")
             self.is_capturing = False
 
     def onLeftButtonDown(self, event):
@@ -271,7 +272,7 @@ class ScreenCapture:
         self.destroy_overlay()
 
     def trigger_toast(self, message):
-        print(f"TOAST: {message}")
+        log_info(f"提示消息：{message}")
 
     def are_capture(self, callback):
         # Deprecated: kept for compatibility if needed, but should use trigger_capture + run_forever pattern

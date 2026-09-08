@@ -6,6 +6,19 @@ import winreg
 import comtypes
 from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
 from pycaw.constants import AudioSessionState
+from app_logging import log_error, log_info, log_warning
+
+COMMON_MEDIA_PLAYERS = {
+    'cloudmusic.exe',
+    'qqmusic.exe',
+    'spotify.exe',
+    'foobar2000.exe',
+    'yesplaymusic.exe',
+    'kgma.exe',
+    'kugou.exe',
+    'kwmusic.exe',
+    'kwmusic_main.exe'
+}
 
 def getClipContent():
     content = pyperclip.paste()
@@ -13,53 +26,22 @@ def getClipContent():
 
 def is_media_player_running():
     """Check if any common media player is running"""
-    # List of common music player process names (lowercase)
-    # cloudmusic.exe: Netease Cloud Music
-    # qqmusic.exe: QQ Music
-    # spotify.exe: Spotify
-    # music.ui.exe: Windows Media Player (Modern)
-    # wmplayer.exe: Windows Media Player (Legacy)
-    # foobar2000.exe: Foobar2000
-    # yesplaymusic.exe: YesPlayMusic
-    common_players = [
-        'cloudmusic.exe', 
-        'qqmusic.exe', 
-        'spotify.exe', 
-        'foobar2000.exe',
-        'yesplaymusic.exe',
-        'kgma.exe',       # KuGou
-        'kugou.exe',      # KuGou
-        'kwmusic.exe',    # Kuwo
-        'kwmusic_main.exe'# Kuwo
-    ]
-    
     try:
         for proc in psutil.process_iter(['name']):
             try:
-                if proc.info['name'].lower() in common_players:
+                process_name = proc.info.get('name')
+                if process_name and process_name.lower() in COMMON_MEDIA_PLAYERS:
                     # print(f"Found running player: {proc.info['name']}")
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
     except Exception as e:
-        print(f"Error checking processes: {e}")
+        log_error(f"service.is_media_player_running failed: {e}")
         
     return False
 
 def is_media_playing():
     """Check if any common media player is actually playing audio"""
-    common_players = [
-        'cloudmusic.exe', 
-        'qqmusic.exe', 
-        'spotify.exe', 
-        'foobar2000.exe',
-        'yesplaymusic.exe',
-        'kgma.exe',       # KuGou
-        'kugou.exe',      # KuGou
-        'kwmusic.exe',    # Kuwo
-        'kwmusic_main.exe'# Kuwo
-    ]
-    
     # Initialize COM (safe to call multiple times per thread)
     try:
         comtypes.CoInitialize()
@@ -69,21 +51,27 @@ def is_media_playing():
     try:
         sessions = AudioUtilities.GetAllSessions()
         for session in sessions:
-            if session.Process:
-                name = session.Process.name().lower()
-                if name in common_players:
-                    if session.State == AudioSessionState.Active:
-                        # Check peak volume to confirm it's actually playing sound
-                        # This avoids the 5-10s delay when Windows keeps the session active after pause
-                        try:
-                            meter = session._ctl.QueryInterface(IAudioMeterInformation)
-                            if meter.GetPeakValue() > 0:
-                                return True
-                        except:
-                            # If we can't get meter info, fall back to state
-                            return True
+            process = session.Process
+            if not process:
+                continue
+
+            try:
+                name = process.name().lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                # 播放器刚退出时音频会话可能短暂残留，这里直接忽略即可。
+                continue
+
+            if name in COMMON_MEDIA_PLAYERS and session.State == AudioSessionState.Active:
+                # 用峰值音量确认是否真的在出声，避免暂停后仍被系统短暂标记为活跃。
+                try:
+                    meter = session._ctl.QueryInterface(IAudioMeterInformation)
+                    if meter.GetPeakValue() > 0:
+                        return True
+                except Exception:
+                    # 如果拿不到峰值信息，则回退到会话状态判断，避免误判为未播放。
+                    return True
     except Exception as e:
-        print(f"Error checking audio sessions: {e}")
+        log_error(f"service.is_media_playing failed: {e}")
     finally:
         # Uninitialize COM
         try:
@@ -171,7 +159,7 @@ def _extract_path_from_command(command):
 
 def launch_default_media_player():
     """Try to launch a media player if none is running"""
-    print("No media player found. Attempting to launch one...")
+    log_info("未检测到正在运行的播放器，开始尝试自动启动")
     
     # Priority list of players (Protocol, AppExeName, Readable Name, UninstallKeyID)
     players = [
@@ -186,12 +174,12 @@ def launch_default_media_player():
     for proto, exe_name, name, app_id in players:
         path = get_app_path(exe_name)
         if path and os.path.exists(path):
-            print(f"Found {name} via App Paths: {path}")
+            log_info(f"通过 App Paths 找到 {name}：{path}")
             try:
                 subprocess.Popen(path)
                 return True
             except Exception as e:
-                print(f"Failed to launch {name}: {e}")
+                log_error(f"service.launch_default_media_player app paths failed for {name}: {e}")
 
     # Strategy 2: Check Uninstall Registry (Reliable for custom install locations)
     for proto, exe_name, name, app_id in players:
@@ -200,23 +188,23 @@ def launch_default_media_player():
             # InstallLocation is usually a directory
             exe_path = os.path.join(install_loc, exe_name)
             if os.path.exists(exe_path):
-                print(f"Found {name} via Uninstall registry: {exe_path}")
+                log_info(f"通过卸载信息找到 {name}：{exe_path}")
                 try:
                     subprocess.Popen(exe_path)
                     return True
                 except Exception as e:
-                    print(f"Failed to launch {name}: {e}")
+                    log_error(f"service.launch_default_media_player uninstall registry failed for {name}: {e}")
 
     # Strategy 3: Registry Protocol Check
     for proto, exe_name, name, app_id in players:
         exe_path = get_protocol_executable(proto)
         if exe_path and os.path.exists(exe_path):
-            print(f"Found {name} via protocol registry: {exe_path}")
+            log_info(f"通过协议注册表找到 {name}：{exe_path}")
             try:
                 subprocess.Popen(exe_path)
                 return True
             except Exception as e:
-                print(f"Failed to launch {name}: {e}")
+                log_error(f"service.launch_default_media_player protocol registry failed for {name}: {e}")
 
     # Strategy 4: Common Paths Fallback
     paths = [
@@ -230,12 +218,13 @@ def launch_default_media_player():
     
     for path in paths:
         if os.path.exists(path):
-            print(f"Launching from path: {path}")
+            log_info(f"通过兜底路径启动播放器：{path}")
             try:
                 subprocess.Popen(path)
                 return True
             except Exception as e:
-                print(f"Failed to launch {path}: {e}")
+                log_error(f"service.launch_default_media_player fallback path failed for {path}: {e}")
     
-    print("Failed to find any installed media player.")
+    log_warning("未找到任何可用的已安装播放器")
+    log_error("service.launch_default_media_player failed to find any installed media player")
     return False

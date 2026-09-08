@@ -1,0 +1,27 @@
+[SERVICE] [2026-02-27 17:35:06] Test log entry from service
+[2026-02-27 17:41:45] Received Media Command: STOP
+[2026-02-27 17:41:45] Media player PLAYING. Sending 'playpause' to stop.
+[2026-02-27 17:41:50] Received Media Command: START
+[2026-02-27 17:41:50] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:41:57] Received Media Command: STOP
+[2026-02-27 17:41:57] Media player PLAYING. Sending 'playpause' to stop.
+[2026-02-27 17:42:07] Received Media Command: START
+[2026-02-27 17:42:07] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:42:14] Received Media Command: STOP
+[2026-02-27 17:42:14] Media player PLAYING. Sending 'playpause' to stop.
+[2026-02-27 17:43:52] Received Media Command: START
+[2026-02-27 17:43:53] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:43:58] Received Media Command: START
+[2026-02-27 17:43:59] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:44:13] Received Media Command: START
+[2026-02-27 17:44:14] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:44:21] Received Media Command: START
+[2026-02-27 17:44:22] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 17:44:59] Received Media Command: START
+[2026-02-27 17:44:59] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 18:09:49] Received Media Command: START
+[2026-02-27 18:09:49] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 18:09:56] Received Media Command: START
+[2026-02-27 18:09:56] Media player running but PAUSED. Sending 'playpause'.
+[2026-02-27 20:14:21] Received Media Command: START
+[2026-02-27 20:14:21] Media player running but PAUSED. Sending 'playpause'.
